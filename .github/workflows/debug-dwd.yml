@@ -8,43 +8,45 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Stationskatalog abrufen (Kopf)
+      - name: Verzeichnisstruktur erkunden
         run: |
           set -x
-          curl -sS -D - -o catalog.txt "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/mosmix_stationskatalog.cfg" | head -30
-          echo "--- Dateigröße ---"
-          wc -l catalog.txt
-          echo "--- Erste 40 Zeilen ---"
-          head -40 catalog.txt
-          echo "--- Zeilen mit '10637' (Frankfurt) ---"
-          grep -n "10637" catalog.txt | head -5 || echo "nicht gefunden"
+          for url in \
+            "https://opendata.dwd.de/weather/local_forecasts/mos/" \
+            "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/" \
+            "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/single_stations/" \
+            "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/all_stations/" \
+            "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/all_stations/kml/" \
+            ; do
+            echo "=================================================="
+            echo "URL: $url"
+            code=$(curl -sS -o /tmp/page.html -w "%{http_code}" "$url")
+            echo "HTTP: $code"
+            if [ "$code" = "200" ]; then
+              echo "--- Auszug (erste 60 Zeilen) ---"
+              head -60 /tmp/page.html
+            fi
+          done
 
-      - name: Verzeichnis der single_stations auflisten
+      - name: Nach Stationskatalog-Dateien suchen
         run: |
           set -x
-          curl -sS -o listing.html "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/single_stations/"
-          grep -oE '"[0-9A-Za-z_.-]+/"' listing.html | head -20 || true
-          echo "--- Verzeichnis für 10637 ---"
-          curl -sS -o dir10637.html "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/single_stations/10637/kml/" || true
-          cat dir10637.html | head -50 || true
+          curl -sS -o /tmp/mos.html "https://opendata.dwd.de/weather/local_forecasts/mos/"
+          echo "--- Alle href in mos/ ---"
+          grep -oE 'href="[^"]+"' /tmp/mos.html
+          curl -sS -o /tmp/mosmix_s.html "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/"
+          echo "--- Alle href in MOSMIX_S/ ---"
+          grep -oE 'href="[^"]+"' /tmp/mosmix_s.html
 
-      - name: KMZ für Frankfurt (10637) laden und Struktur prüfen
+      - name: all_stations kml Verzeichnis auflisten (Dateinamen-Muster)
         run: |
           set -x
-          curl -sSL -o test.kmz "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/single_stations/10637/kml/MOSMIX_S_LATEST_10637.kmz" -w "HTTP:%{http_code} SIZE:%{size_download}\n"
-          file test.kmz
-          unzip -l test.kmz || true
-          mkdir -p extracted
-          unzip -o test.kmz -d extracted || true
-          ls -la extracted
-          KML_FILE=$(find extracted -iname "*.kml" | head -1)
-          echo "KML_FILE=$KML_FILE"
-          if [ -n "$KML_FILE" ]; then
-            echo "--- Erste 3000 Zeichen ---"
-            head -c 3000 "$KML_FILE"
-            echo ""
-            echo "--- Suche nach Placemark/Forecast/ElementName ---"
-            grep -o '<[a-zA-Z0-9:]*Placemark[^>]*>' "$KML_FILE" | head -5
-            grep -o 'elementName="[A-Za-z0-9]*"' "$KML_FILE" | sort -u | head -60
-            grep -o '<[a-zA-Z0-9:]*TimeStep>' "$KML_FILE" | head -3
-          fi
+          curl -sS -o /tmp/allkml.html "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/all_stations/kml/"
+          grep -oE 'href="[^"]+"' /tmp/allkml.html | head -20
+
+      - name: single_stations Verzeichnis roh ausgeben
+        run: |
+          set -x
+          curl -sS -D - -o /tmp/single.html "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/single_stations/"
+          echo "--- Inhalt ---"
+          cat /tmp/single.html
