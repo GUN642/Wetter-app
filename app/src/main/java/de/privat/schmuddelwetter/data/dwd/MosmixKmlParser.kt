@@ -119,11 +119,15 @@ object MosmixKmlParser {
                         }
                     }
                     "dwd:value" -> if (inPlacemark) {
-                        // Auch bei unerwünschten Elementen konsumieren wir den Text (nextText muss
-                        // aufgerufen werden, um den Parser korrekt weiterzubewegen), verwerfen ihn
-                        // aber sofort statt ihn in einer Liste zu behalten.
-                        val text = parser.nextText()
-                        currentValuesText?.append(text)
+                        val target = currentValuesText
+                        if (target != null) {
+                            target.append(parser.nextText())
+                        } else {
+                            // Element ist nicht in WANTED_ELEMENTS: Text (oft tausende Zeichen,
+                            // ×5600 Stationen) wird übersprungen statt per nextText() als String
+                            // materialisiert zu werden – das war der eigentliche Performance-Killer.
+                            skipSubtree(parser)
+                        }
                     }
                     "kml:kml" -> Unit
                 }
@@ -241,6 +245,21 @@ object MosmixKmlParser {
         Instant.parse(text.trim())
     } catch (e: Exception) {
         null
+    }
+
+    /**
+     * Überspringt den Rest des aktuellen Elements (der Parser muss auf dem
+     * START_TAG stehen), ohne dessen Textinhalt als String zu materialisieren.
+     */
+    private fun skipSubtree(parser: XmlPullParser) {
+        var depth = 1
+        while (depth > 0) {
+            when (parser.next()) {
+                XmlPullParser.START_TAG -> depth++
+                XmlPullParser.END_TAG -> depth--
+                XmlPullParser.END_DOCUMENT -> return
+            }
+        }
     }
 
     private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

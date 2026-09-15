@@ -20,14 +20,25 @@ class DwdWeatherApi(private val client: OkHttpClient) {
     private val allStationsUrl =
         "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/all_stations/kml/MOSMIX_S_LATEST_240.kmz"
 
-    suspend fun fetchNearestStationForecast(lat: Double, lon: Double): MosmixForecast =
+    /**
+     * [onProgress] meldet (gelesene Bytes, Gesamtbytes) während des Downloads –
+     * da Download und Parsing gestreamt ineinandergreifen, ist das ein guter
+     * Näherungswert für den Gesamtfortschritt. Gesamtbytes kann -1 sein, wenn
+     * der Server keine Content-Length liefert.
+     */
+    suspend fun fetchNearestStationForecast(
+        lat: Double,
+        lon: Double,
+        onProgress: (bytesRead: Long, totalBytes: Long) -> Unit = { _, _ -> },
+    ): MosmixForecast =
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(allStationsUrl).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw IOException("DWD-MOSMIX-Abruf fehlgeschlagen: HTTP ${response.code}")
                 }
-                val body = response.body ?: throw IOException("Leere Antwort von DWD")
+                val rawBody = response.body ?: throw IOException("Leere Antwort von DWD")
+                val body = ProgressResponseBody(rawBody, onProgress)
                 ZipInputStream(BufferedInputStream(body.byteStream())).use { zip ->
                     var entry = zip.nextEntry
                     while (entry != null) {

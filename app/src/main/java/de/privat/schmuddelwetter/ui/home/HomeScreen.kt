@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,7 +68,7 @@ fun HomeScreen(serviceLocator: ServiceLocator) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         when (val current = state) {
-            is HomeUiState.Loading -> LoadingView()
+            is HomeUiState.Loading -> LoadingView(progressPercent = current.progressPercent)
             is HomeUiState.Error -> ErrorView(message = current.message, onRetry = viewModel::refresh)
             is HomeUiState.Success -> WeatherContent(forecast = current.forecast, onRefresh = viewModel::refresh)
         }
@@ -75,9 +76,27 @@ fun HomeScreen(serviceLocator: ServiceLocator) {
 }
 
 @Composable
-private fun LoadingView() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
+private fun LoadingView(progressPercent: Int?) {
+    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (progressPercent != null) {
+                LinearProgressIndicator(
+                    progress = progressPercent / 100f,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(text = "$progressPercent %", style = MaterialTheme.typography.titleMedium)
+            } else {
+                CircularProgressIndicator()
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Lade DWD-Wetterdaten …\nDas kann beim ersten Abruf über eine Minute dauern.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

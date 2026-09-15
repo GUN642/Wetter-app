@@ -13,7 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 sealed interface HomeUiState {
-    data object Loading : HomeUiState
+    /** [progressPercent] ist der Downloadfortschritt der ~36-MB-DWD-Datei (0–100), sonst null. */
+    data class Loading(val progressPercent: Int? = null) : HomeUiState
     data class Success(val forecast: MosmixForecast) : HomeUiState
     data class Error(val message: String) : HomeUiState
 }
@@ -24,7 +25,7 @@ class HomeViewModel(
     private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
+    private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     init {
@@ -33,7 +34,7 @@ class HomeViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.value = HomeUiState.Loading
+            _uiState.value = HomeUiState.Loading()
 
             val location = locationProvider.getCurrentLocation()
                 ?: settingsRepository.getLastLocation()?.let { (lat, lon) -> GeoLocation(lat, lon) }
@@ -47,7 +48,16 @@ class HomeViewModel(
 
             settingsRepository.saveLastLocation(location.lat, location.lon)
 
-            weatherRepository.forecastForLocation(location.lat, location.lon)
+            var lastReportedPercent = -1
+            weatherRepository.forecastForLocation(location.lat, location.lon) { bytesRead, totalBytes ->
+                if (totalBytes > 0) {
+                    val percent = ((bytesRead * 100) / totalBytes).toInt().coerceIn(0, 100)
+                    if (percent != lastReportedPercent) {
+                        lastReportedPercent = percent
+                        _uiState.value = HomeUiState.Loading(progressPercent = percent)
+                    }
+                }
+            }
                 .onSuccess { forecast -> _uiState.value = HomeUiState.Success(forecast) }
                 .onFailure { error ->
                     _uiState.value = HomeUiState.Error(error.message ?: "Wetterdaten konnten nicht geladen werden.")
