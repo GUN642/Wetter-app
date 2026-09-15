@@ -27,9 +27,6 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Android SDK einrichten
-        uses: android-actions/setup-android@v3
-
       - name: gradlew ausführbar machen
         run: chmod +x gradlew
 
