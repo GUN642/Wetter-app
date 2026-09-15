@@ -16,6 +16,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Code auschecken
         uses: actions/checkout@v4
@@ -51,24 +52,17 @@ jobs:
           retention-days: 30
 
       - name: "Release 'Letzter Debug-Build' aktualisieren"
-        uses: ncipollo/release-action@v1
-        with:
-          tag: latest-debug-build
-          name: "Letzter Debug-Build"
-          body: |
-            Automatisch gebauter Debug-APK.
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest-debug-build --yes --cleanup-tag || true
+          gh release create latest-debug-build dist/schmuddelwetter-debug-latest.apk \
+            --title "Letzter Debug-Build" \
+            --prerelease \
+            --notes "Automatisch gebauter Debug-APK.
 
-            - Branch: `${{ github.ref_name }}`
-            - Commit: ${{ github.sha }}
+          - Branch: \`${{ github.ref_name }}\`
+          - Commit: ${{ github.sha }}
 
-            Zum Installieren am Handy: Datei unten (`schmuddelwetter-debug-latest.apk`)
-            herunterladen und öffnen. Android fragt ggf. nach der Erlaubnis
-            "Apps aus unbekannten Quellen installieren" – für die Browser-/
-            Dateien-App einmalig zulassen.
-          artifacts: dist/schmuddelwetter-debug-latest.apk
-          allowUpdates: true
-          replacesArtifacts: true
-          removeArtifacts: true
-          prerelease: true
-          makeLatest: false
-          token: ${{ secrets.GITHUB_TOKEN }}
+          Zum Installieren am Handy: Datei unten (\`schmuddelwetter-debug-latest.apk\`) herunterladen und öffnen. Android fragt ggf. nach der Erlaubnis \"Apps aus unbekannten Quellen installieren\" – für die Browser-/Dateien-App einmalig zulassen."
