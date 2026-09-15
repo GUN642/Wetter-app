@@ -6,47 +6,35 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Verzeichnisstruktur erkunden
+      - name: All-Stations-KMZ laden und Struktur prüfen
         run: |
           set -x
-          for url in \
-            "https://opendata.dwd.de/weather/local_forecasts/mos/" \
-            "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/" \
-            "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/single_stations/" \
-            "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/all_stations/" \
-            "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/all_stations/kml/" \
-            ; do
-            echo "=================================================="
-            echo "URL: $url"
-            code=$(curl -sS -o /tmp/page.html -w "%{http_code}" "$url")
-            echo "HTTP: $code"
-            if [ "$code" = "200" ]; then
-              echo "--- Auszug (erste 60 Zeilen) ---"
-              head -60 /tmp/page.html
-            fi
-          done
+          curl -sSL -o full.kmz "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/all_stations/kml/MOSMIX_S_LATEST_240.kmz" -w "HTTP:%{http_code} SIZE:%{size_download}\n"
+          ls -la full.kmz
+          mkdir -p extracted
+          unzip -o full.kmz -d extracted
+          ls -la extracted
+          KML=$(find extracted -iname "*.kml" | head -1)
+          echo "KML=$KML"
+          ls -la "$KML"
 
-      - name: Nach Stationskatalog-Dateien suchen
-        run: |
-          set -x
-          curl -sS -o /tmp/mos.html "https://opendata.dwd.de/weather/local_forecasts/mos/"
-          echo "--- Alle href in mos/ ---"
-          grep -oE 'href="[^"]+"' /tmp/mos.html
-          curl -sS -o /tmp/mosmix_s.html "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/"
-          echo "--- Alle href in MOSMIX_S/ ---"
-          grep -oE 'href="[^"]+"' /tmp/mosmix_s.html
-
-      - name: all_stations kml Verzeichnis auflisten (Dateinamen-Muster)
-        run: |
-          set -x
-          curl -sS -o /tmp/allkml.html "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/all_stations/kml/"
-          grep -oE 'href="[^"]+"' /tmp/allkml.html | head -20
-
-      - name: single_stations Verzeichnis roh ausgeben
-        run: |
-          set -x
-          curl -sS -D - -o /tmp/single.html "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_S/single_stations/"
-          echo "--- Inhalt ---"
-          cat /tmp/single.html
+          echo "=== ERSTE 4000 ZEICHEN ==="
+          head -c 4000 "$KML"
+          echo ""
+          echo "=== ZEICHEN 4000-20000 ==="
+          tail -c +4000 "$KML" | head -c 16000
+          echo ""
+          echo "=== unique elementName Werte (erste 300000 Zeichen) ==="
+          head -c 300000 "$KML" | grep -oE 'elementName="[A-Za-z0-9]+"' | sort -u
+          echo "=== TimeStep Beispiele ==="
+          head -c 300000 "$KML" | grep -oE '<[a-zA-Z0-9:]*TimeStep>[^<]*' | head -5
+          echo "=== coordinates Beispiele ==="
+          head -c 300000 "$KML" | grep -oE '<[a-zA-Z0-9:]*coordinates>[^<]*' | head -5
+          echo "=== name-Tags Beispiele ==="
+          head -c 300000 "$KML" | grep -oE '<[a-zA-Z0-9:]*name>[^<]*' | head -10
+          echo "=== Placemark-Tag Beispiele ==="
+          head -c 300000 "$KML" | grep -oE '<[a-zA-Z0-9:]*Placemark[^>]*>' | head -5
+          echo "=== Gesamtzahl Placemarks ==="
+          grep -oE "<[a-zA-Z0-9:]*Placemark>" "$KML" | wc -l
