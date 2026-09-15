@@ -30,7 +30,9 @@ class ProgressResponseBody(
         override fun read(sink: Buffer, byteCount: Long): Long {
             val bytesRead = super.read(sink, byteCount)
             if (bytesRead != -1L) totalBytesRead += bytesRead
-            onProgress(totalBytesRead, delegate.contentLength())
+            // Qualifiziert, weil ForwardingSource selbst ein Member "delegate" hat,
+            // das das äußere ResponseBody-Feld sonst überschatten würde.
+            onProgress(totalBytesRead, this@ProgressResponseBody.delegate.contentLength())
             return bytesRead
         }
     }
