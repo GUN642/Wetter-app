@@ -32,7 +32,7 @@ Reine Privatnutzung: kein Play-Store-Release, kein Tracking, kein Cloud-Konto.
 ```
 app/src/main/java/de/privat/schmuddelwetter/
 ├── data/
-│   ├── dwd/        MOSMIX-Stationskatalog, KML-Parser, Wettercode-Mapping
+│   ├── dwd/        MOSMIX-Streaming-KML-Parser (Stationssuche inklusive), Wettercode-Mapping
 │   ├── metar/       METAR/TAF-Textparser, aviationweather.gov-Client, Flughafenliste
 │   ├── location/    Standortabfrage (FusedLocationProvider)
 │   └── settings/    Lokale Einstellungen (DataStore)
@@ -53,6 +53,21 @@ Die aktuelle Anzeige wird aus dem MOSMIX-Zeitschritt errechnet, der der Ist-Zeit
 nächsten liegt. Das vermeidet einen zweiten, weniger konsistenten DWD-Datensatz
 (POI-Beobachtungen, die nur an einem kleineren Stationsnetz existieren) und hält
 Home- und Stunden-/Tagesansicht auf derselben Datenbasis.
+
+### Warum wird bei jedem Refresh eine ~36-MB-Datei geladen?
+
+DWD bietet MOSMIX_S inzwischen nur noch als **eine** Sammeldatei für alle ca. 5600
+Stationen weltweit an (`all_stations/kml/MOSMIX_S_LATEST_240.kmz`); einen
+Einzelstations-Endpunkt oder einen separaten, leichtgewichtigen Stationskatalog
+gibt es bei DWD nicht mehr. Entpackt ist die KML-Datei mehrere hundert MB groß –
+viel zu groß, um sie komplett im Speicher zu halten. Die App liest sie deshalb in
+einem einzigen Streaming-Durchlauf (`MosmixKmlParser.parseNearestStation`):
+Koordinaten jeder Station werden sofort mit dem eigenen Standort verglichen, und
+nur für die bisher nächstgelegene Station werden die Vorhersagewerte tatsächlich
+behalten – alle anderen werden direkt wieder verworfen. Dadurch bleibt der
+Speicherbedarf konstant klein, unabhängig von der Dateigröße; der Download selbst
+(einmal pro Aktualisierung) bleibt aber ein echter, spürbarer Netzwerk- und
+Datenvolumen-Kostenfaktor, den DWDs aktuelles Datenangebot leider vorgibt.
 
 ### Warum ein reiner Text-Parser für METAR/TAF statt eines JSON-Schemas?
 
@@ -139,3 +154,7 @@ eigenem Schlüssel ist für diesen Anwendungsfall nicht nötig.
   WMO-Codetabelle 4677/4680, keine 1:1-Übersetzung jedes Einzelcodes.
 - Kein Offline-Modus: Ohne Internetverbindung können weder DWD- noch METAR/TAF-Daten
   geladen werden (nur die zuletzt bekannte Position wird lokal zwischengespeichert).
+- Der Wetter-Refresh lädt jedes Mal die komplette DWD-MOSMIX-Sammeldatei (~36 MB,
+  siehe oben) – im mobilen Datennetz spürbar. Ein WLAN-Hinweis oder ein selteneres
+  automatisches Aktualisieren wären sinnvolle Erweiterungen, sind aber (noch) nicht
+  eingebaut.

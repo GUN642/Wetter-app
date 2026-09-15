@@ -10,12 +10,22 @@ import org.xmlpull.v1.XmlPullParser
 import java.io.InputStream
 import java.time.Instant
 import java.time.ZoneId
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
- * Parst eine DWD-MOSMIX_S-Einzelstations-KML-Datei (eine Placemark je Datei,
- * ein `dwd:Forecast`-Block je Wetterelement mit einer whitespace-separierten
- * Werteliste, deren Index sich auf die gemeinsame `dwd:ForecastTimeSteps`-Liste
- * bezieht). Fehlende Werte sind in MOSMIX als "-" kodiert.
+ * Parst die DWD-MOSMIX_S-Sammeldatei, die inzwischen (anders als früher) *alle*
+ * ca. 5600 Stationen in einer einzigen, sehr großen KML-Datei enthält (entpackt
+ * mehrere hundert MB). Ein Einzelstations-Endpunkt existiert bei DWD nicht mehr.
+ *
+ * Damit das auf einem Handy funktioniert, wird die Datei in einem einzigen
+ * Streaming-Durchlauf gelesen: Für jede Station (Placemark) werden Name und
+ * Koordinaten sofort ausgewertet; nur für die bisher nächstgelegene Station
+ * werden die Vorhersagewerte tatsächlich in Objekte umgewandelt und behalten,
+ * alle anderen Stationen werden nach dem Vergleich sofort wieder verworfen.
+ * So bleibt der Speicherbedarf unabhängig von der Dateigröße konstant klein.
  */
 object MosmixKmlParser {
 
@@ -31,38 +41,91 @@ object MosmixKmlParser {
     private val VISIBILITY_KEYS = listOf("VV")
     private val WEATHER_CODE_KEYS = listOf("ww", "WW")
 
-    fun parse(input: InputStream, station: DwdStation): MosmixForecast {
+    /** Alle Element-Codes, die wir überhaupt auswerten – alles andere wird beim Parsen übersprungen. */
+    private val WANTED_ELEMENTS: Set<String> = (
+        TEMP_KEYS + DEWPOINT_KEYS + WIND_SPEED_KEYS + WIND_GUST_KEYS + WIND_DIR_KEYS +
+            PRECIP_KEYS + PRECIP_PROB_KEYS + CLOUD_COVER_KEYS + PRESSURE_KEYS +
+            VISIBILITY_KEYS + WEATHER_CODE_KEYS
+        ).toSet()
+
+    /**
+     * Liest [input] (die entpackte KML) einmal komplett durch und liefert die
+     * Vorhersage für die Station, die [targetLat]/[targetLon] am nächsten liegt
+     * (max. [maxDistanceKm]), oder `null`, wenn keine Station in Reichweite ist.
+     */
+    fun parseNearestStation(
+        input: InputStream,
+        targetLat: Double,
+        targetLon: Double,
+        maxDistanceKm: Double = 150.0,
+    ): MosmixForecast? {
         val parser = Xml.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
-        parser.setInput(input, "UTF-8")
+        // encoding=null → Auto-Erkennung anhand der XML-Deklaration (DWD liefert ISO-8859-1).
+        parser.setInput(input, null)
 
         val timeSteps = mutableListOf<Instant>()
-        val elementValues = mutableMapOf<String, List<Double?>>()
         var issuedAt: Instant? = null
 
         var inForecastTimeSteps = false
         var inPlacemark = false
-        var placemarkDone = false
+
+        var currentStationId: String? = null
+        var currentStationName: String? = null
+        var currentLat: Double? = null
+        var currentLon: Double? = null
+        var currentElevation: Int = 0
         var currentElementName: String? = null
         var currentValuesText: StringBuilder? = null
+        var currentElementValues = mutableMapOf<String, List<Double?>>()
+
+        var bestDistanceKm = Double.MAX_VALUE
+        var bestStation: DwdStation? = null
+        var bestElementValues: Map<String, List<Double?>>? = null
 
         var eventType = parser.eventType
         while (eventType != XmlPullParser.END_DOCUMENT) {
             when (eventType) {
                 XmlPullParser.START_TAG -> when (parser.name) {
-                    "dwd:IssueTime" -> {
-                        issuedAt = parseIsoInstant(parser.nextText())
-                    }
+                    "dwd:IssueTime" -> issuedAt = parseIsoInstant(parser.nextText())
                     "dwd:ForecastTimeSteps" -> inForecastTimeSteps = true
                     "dwd:TimeStep" -> if (inForecastTimeSteps) {
                         parseIsoInstant(parser.nextText())?.let { timeSteps += it }
                     }
-                    "kml:Placemark" -> if (!placemarkDone) inPlacemark = true
-                    "dwd:Forecast" -> if (inPlacemark) {
-                        currentElementName = parser.getAttributeValue(null, "dwd:elementName")
-                        currentValuesText = StringBuilder()
+                    "kml:Placemark" -> {
+                        inPlacemark = true
+                        currentStationId = null
+                        currentStationName = null
+                        currentLat = null
+                        currentLon = null
+                        currentElevation = 0
+                        currentElementValues = mutableMapOf()
                     }
-                    "dwd:value" -> currentValuesText?.append(parser.nextText())
+                    "kml:name" -> if (inPlacemark) currentStationId = parser.nextText().trim()
+                    "kml:description" -> if (inPlacemark) currentStationName = parser.nextText().trim()
+                    "kml:coordinates" -> if (inPlacemark) {
+                        val parts = parser.nextText().trim().split(",")
+                        currentLon = parts.getOrNull(0)?.toDoubleOrNull()
+                        currentLat = parts.getOrNull(1)?.toDoubleOrNull()
+                        currentElevation = parts.getOrNull(2)?.toDoubleOrNull()?.toInt() ?: 0
+                    }
+                    "dwd:Forecast" -> if (inPlacemark) {
+                        val elementName = parser.getAttributeValue(null, "dwd:elementName")
+                        currentElementName = elementName
+                        currentValuesText = if (elementName != null && elementName in WANTED_ELEMENTS) {
+                            StringBuilder()
+                        } else {
+                            null
+                        }
+                    }
+                    "dwd:value" -> if (inPlacemark) {
+                        // Auch bei unerwünschten Elementen konsumieren wir den Text (nextText muss
+                        // aufgerufen werden, um den Parser korrekt weiterzubewegen), verwerfen ihn
+                        // aber sofort statt ihn in einer Liste zu behalten.
+                        val text = parser.nextText()
+                        currentValuesText?.append(text)
+                    }
+                    "kml:kml" -> Unit
                 }
                 XmlPullParser.END_TAG -> when (parser.name) {
                     "dwd:ForecastTimeSteps" -> inForecastTimeSteps = false
@@ -70,21 +133,38 @@ object MosmixKmlParser {
                         val name = currentElementName
                         val text = currentValuesText?.toString()
                         if (name != null && text != null) {
-                            elementValues[name] = parseValueList(text)
+                            currentElementValues[name] = parseValueList(text)
                         }
                         currentElementName = null
                         currentValuesText = null
                     }
-                    "kml:Placemark" -> if (inPlacemark) {
+                    "kml:Placemark" -> {
+                        val lat = currentLat
+                        val lon = currentLon
+                        val id = currentStationId
+                        if (lat != null && lon != null && id != null) {
+                            val distanceKm = haversineKm(targetLat, targetLon, lat, lon)
+                            if (distanceKm <= maxDistanceKm && distanceKm < bestDistanceKm) {
+                                bestDistanceKm = distanceKm
+                                bestStation = DwdStation(
+                                    id = id,
+                                    name = currentStationName?.takeIf { it.isNotBlank() } ?: id,
+                                    lat = lat,
+                                    lon = lon,
+                                    elevationM = currentElevation,
+                                )
+                                bestElementValues = currentElementValues
+                            }
+                        }
                         inPlacemark = false
-                        placemarkDone = true
                     }
                 }
             }
             eventType = parser.next()
         }
 
-        val hourly = buildTimeSteps(timeSteps, elementValues)
+        val station = bestStation ?: return null
+        val hourly = buildTimeSteps(timeSteps, bestElementValues.orEmpty())
         val daily = buildDailySummaries(hourly)
         return MosmixForecast(
             station = station,
@@ -161,5 +241,15 @@ object MosmixKmlParser {
         Instant.parse(text.trim())
     } catch (e: Exception) {
         null
+    }
+
+    private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2) * sin(dLat / 2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2) * sin(dLon / 2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return r * c
     }
 }
