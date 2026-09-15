@@ -90,6 +90,36 @@ Der METAR/TAF-Parser (`MetarTafParserTest`) ist reine Kotlin-/JVM-Logik und ohne
 Android-Abhängigkeiten unit-testbar (Wind, Sicht, Wolken, Wettererscheinungen,
 Flugkategorie, TAF-Änderungsgruppen).
 
+## APK direkt am Handy bauen (GitHub Actions)
+
+Der Workflow [`build-apk.yml`](.github/workflows/build-apk.yml) baut die App auf
+GitHub-Servern (mit vollem Internetzugriff, ohne die Einschränkungen dieser Sandbox)
+und stellt eine fertige Debug-APK zum Download bereit – ganz ohne eigenen Rechner:
+
+1. In der **GitHub-App** (oder im mobilen Browser) zum Repository → Tab **Actions**
+   → Workflow **"APK bauen"** gehen.
+2. Oben rechts **"Run workflow"** antippen (funktioniert auch ohne Push, jederzeit
+   manuell auslösbar) – oder einfach abwarten, der Workflow läuft automatisch bei
+   jedem Push auf einen beliebigen Branch mit.
+3. Nach ca. 3–5 Minuten ist der Lauf grün. Zwei Wege, an die APK zu kommen:
+   - **Release "Letzter Debug-Build"** (Tab **Releases**, oder Link im Workflow-Log):
+     Dort liegt `schmuddelwetter-debug-latest.apk` als direkter Download-Link –
+     im Browser antippen, herunterladen, in der Dateien-App öffnen, installieren.
+     Das ist der bequemste Weg am Handy (kein Einloggen/Entpacken nötig).
+   - **Workflow-Artefakt** (im jeweiligen Workflow-Lauf ganz unten): enthält dieselbe
+     APK mit Commit-Hash im Namen, liegt als ZIP vor (30 Tage aufbewahrt).
+4. Bei der Installation fragt Android nach der Erlaubnis "Apps aus unbekannten
+   Quellen installieren" für die verwendete Browser-/Dateien-App – einmalig
+   zulassen, dann startet die Installation.
+
+Der Workflow baut bewusst nur eine **Debug-APK** (automatisch debug-signiert von
+Android selbst) – für reine Privatnutzung reicht das; ein Release-Signing-Setup mit
+eigenem Schlüssel ist für diesen Anwendungsfall nicht nötig.
+
+> Falls das Erstellen des Releases mit einem Berechtigungsfehler abbricht: unter
+> **Settings → Actions → General → Workflow permissions** im Repository
+> "Read and write permissions" aktivieren.
+
 ## Datenquellen & Lizenzen
 
 - Wetterdaten: [Deutscher Wetterdienst, Open Data (MOSMIX)](https://opendata.dwd.de) –
